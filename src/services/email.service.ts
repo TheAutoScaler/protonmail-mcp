@@ -13,6 +13,7 @@ import type {
 } from '../types.js';
 import { NotFoundError, IMAPError } from '../utils/errors.js';
 import { ErrorType as ErrorTypeEnum } from '../types.js';
+import { normalizeUids } from '../utils/validation.js';
 
 export class EmailService {
   private imapPool: ImapConnectionPool;
@@ -80,10 +81,10 @@ export class EmailService {
     includeAttachments: boolean = false
   ): Promise<EmailMessageFull> {
     return this.imapPool.withMailbox(folder, async (client, lock) => {
-      const uidNum = parseInt(uid, 10);
+      const [normalizedUid] = normalizeUids([uid]);
 
       for await (const message of client.fetch(
-        `${uidNum}`,
+        normalizedUid,
         {
           envelope: true,
           flags: true,
@@ -102,10 +103,10 @@ export class EmailService {
 
   async getEmailHeaders(folder: string, uid: string): Promise<EmailMessage> {
     return this.imapPool.withMailbox(folder, async (client, lock) => {
-      const uidNum = parseInt(uid, 10);
+      const [normalizedUid] = normalizeUids([uid]);
 
       for await (const message of client.fetch(
-        `${uidNum}`,
+        normalizedUid,
         {
           envelope: true,
           flags: true,
@@ -185,14 +186,14 @@ export class EmailService {
 
   async markAsRead(folder: string, uids: string[]): Promise<void> {
     return this.imapPool.withMailbox(folder, async (client, lock) => {
-      const uidStr = uids.join(',');
+      const uidStr = normalizeUids(uids).join(',');
       await client.messageFlagsAdd(uidStr, ['\\Seen'], { uid: true });
     }, false);
   }
 
   async markAsUnread(folder: string, uids: string[]): Promise<void> {
     return this.imapPool.withMailbox(folder, async (client, lock) => {
-      const uidStr = uids.join(',');
+      const uidStr = normalizeUids(uids).join(',');
       await client.messageFlagsRemove(uidStr, ['\\Seen'], { uid: true });
     }, false);
   }
@@ -269,14 +270,14 @@ export class EmailService {
     uids: string[]
   ): Promise<void> {
     return this.imapPool.withMailbox(sourceFolder, async (client, lock) => {
-      const uidStr = uids.join(',');
+      const uidStr = normalizeUids(uids).join(',');
       await client.messageMove(uidStr, targetFolder, { uid: true });
     }, false);
   }
 
   async deleteEmails(folder: string, uids: string[]): Promise<void> {
     return this.imapPool.withMailbox(folder, async (client, lock) => {
-      const uidStr = uids.join(',');
+      const uidStr = normalizeUids(uids).join(',');
       await client.messageDelete(uidStr, { uid: true });
     }, false);
   }
@@ -337,11 +338,22 @@ export class EmailService {
 
     if (message.source) {
       try {
+        if (message.source.length > this.limits.maxEmailBodySize) {
+          throw new Error(
+            `Email exceeds the configured ${this.limits.maxEmailBodySize} byte parsing limit`
+          );
+        }
         const parsed: ParsedMail = await simpleParser(message.source);
         body = parsed.text;
         htmlBody = parsed.html || undefined;
 
         if (includeAttachments && parsed.attachments) {
+          const totalAttachmentSize = parsed.attachments.reduce((total, att) => total + att.size, 0);
+          if (totalAttachmentSize > this.limits.maxEmailBodySize) {
+            throw new Error(
+              `Attachments exceed the configured ${this.limits.maxEmailBodySize} byte limit`
+            );
+          }
           attachments = parsed.attachments.map(att => ({
             filename: att.filename || 'attachment',
             contentType: att.contentType,
@@ -351,7 +363,7 @@ export class EmailService {
           }));
         }
       } catch (error) {
-        console.error('Failed to parse email:', error);
+        throw new IMAPError(`Failed to safely parse email: ${(error as Error).message}`);
       }
     }
 

@@ -2,6 +2,47 @@
 
 An MCP (Model Context Protocol) server that connects to ProtonMail via Bridge, enabling AI assistants like Claude to manage your email.
 
+> [!WARNING]
+> **This is an unmaintained fork.** It is not affiliated with Proton AG and there
+> is no commitment to provide updates, security patches, compatibility fixes, or
+> support. Review the code and dependency advisories before each deployment. If
+> you use it, keep it bound to loopback and do not expose it directly to a network.
+
+## Security audit and hardening
+
+This fork received a source-level security audit on **19 August 2026**, covering
+the HTTP/MCP boundary, authentication and authorization, credential handling,
+IMAP/SMTP inputs, TLS configuration, resource-exhaustion risks, Docker packaging,
+and production dependencies. The review applied to commit
+`dc638cc367323f81d50c07e53db4e4beabf56f33` of the upstream repository; the
+hardening changes described below were then implemented in this fork.
+
+The audit identified and fixed the following issues:
+
+- Unauthenticated `/mcp` and `/emails` endpoints were replaced with mandatory,
+  constant-time-checked bearer-token authentication.
+- The HTTP server now binds only to loopback and validates `Host` and `Origin`
+  headers to reduce network exposure and DNS-rebinding risk.
+- Per-client request limits and a global concurrency limit were added.
+- IMAP UIDs must now be positive decimal integers. Sequence expressions such as
+  `1:*` are rejected before they reach IMAP operations.
+- Tool inputs, recipient lists, request bodies, parsed messages, and attachments
+  are bounded to reduce memory and CPU denial-of-service risk.
+- TLS certificate verification is enabled by default and may be disabled only
+  for a loopback Proton Mail Bridge endpoint.
+- Docker builds no longer copy the credential-bearing configuration file into
+  image layers, and the runtime process uses the unprivileged `node` user.
+- Known vulnerable direct and transitive dependencies were updated or overridden;
+  the resulting production lockfile reported zero advisories at audit time.
+- Regression tests were added for secure configuration and UID handling.
+- Internal HTTP failures no longer return underlying exception details to clients.
+
+After hardening, a clean install, TypeScript build, security regression suite,
+Mailparser compatibility smoke test, diff validation, and production dependency
+audit all passed. This is a point-in-time review, not a guarantee that the software
+is vulnerability-free. New vulnerabilities may be discovered after the date above,
+especially because this fork is unmaintained.
+
 ## Features
 
 - **Email Management**: Read, search, send, reply, forward, and delete emails
@@ -31,7 +72,12 @@ npm run build
    cp config/protonmail.config.example.json config/protonmail.config.json
    ```
 
-2. Edit `config/protonmail.config.json` with your credentials:
+2. Generate an MCP bearer token and edit `config/protonmail.config.json`:
+   ```bash
+   openssl rand -hex 32
+   ```
+
+   Add the generated value together with your Bridge credentials:
    ```json
    {
      "protonmail": {
@@ -39,6 +85,9 @@ npm run build
          "user": "your-email@protonmail.com",
          "pass": "your-bridge-password"
        }
+     },
+     "server": {
+       "authToken": "paste-the-generated-token-here"
      }
    }
    ```
@@ -51,10 +100,17 @@ npm run build
 npm start
 ```
 
-The server listens on port `3000` by default. Set the `PORT` environment variable to change it:
+The server listens only on `127.0.0.1:3000` by default. Change `server.httpPort`
+in the configuration file to use another port. The server deliberately rejects
+non-loopback bind addresses; put an authenticated TLS reverse proxy in front of
+it if remote access is required.
 
 ```bash
-PORT=8080 npm start
+MCP_AUTH_TOKEN="$(openssl rand -hex 32)" \
+PROTONMAIL_USER="you@example.com" \
+PROTONMAIL_PASS="your-bridge-password" \
+PROTONMAIL_TLS_REJECT_UNAUTHORIZED=false \
+npm start
 ```
 
 MCP endpoint: `http://localhost:3000/mcp`
@@ -67,13 +123,21 @@ The server uses the **MCP Streamable HTTP transport** (spec 2025-03-26), so conf
 {
   "mcpServers": {
     "protonmail": {
-      "url": "http://localhost:3000/mcp"
+      "url": "http://localhost:3000/mcp",
+      "headers": {
+        "Authorization": "Bearer paste-the-same-generated-token-here"
+      }
     }
   }
 }
 ```
 
 > **Note**: Start the server before launching Claude Desktop (`npm start`).
+
+Every `/mcp` and `/emails` request requires the bearer token. Browser-originated
+requests are rejected unless their exact origin is listed in
+`server.allowedOrigins`, which is empty by default. Keep the configuration file
+private; it contains both the Bridge password and MCP token.
 
 ### Legacy stdio (not supported)
 
@@ -143,6 +207,9 @@ This server no longer supports stdio transport. If you need stdio, use an earlie
 ```bash
 # Build
 npm run build
+
+# Build and run security/regression tests
+npm test
 
 # Watch mode
 npm run dev

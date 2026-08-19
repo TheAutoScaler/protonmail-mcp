@@ -11,7 +11,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "dev": "tsc --watch",
-    "test": "jest",
+    "test": "npm run build && node --test tests/*.test.mjs",
     "lint": "eslint src/**/*.ts"
   },
   "keywords": [
@@ -24,12 +24,12 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@modelcontextprotocol/sdk": "^1.30.0",
     "express": "^5.2.1",
-    "imapflow": "^1.0.164",
-    "mailparser": "^3.7.1",
-    "nodemailer": "^6.9.16",
-    "zod": "^3.23.8"
+    "imapflow": "^1.7.1",
+    "mailparser": "^3.9.15",
+    "nodemailer": "^9.0.5",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/express": "^5.0.6",
@@ -38,6 +38,9 @@
     "@types/nodemailer": "^6.4.16",
     "tsx": "^4.21.0",
     "typescript": "^5.3.3"
+  },
+  "overrides": {
+    "deepmerge-ts": "^8.0.0"
   },
   "engines": {
     "node": ">=18.0.0"

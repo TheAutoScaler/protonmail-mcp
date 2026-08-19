@@ -2,6 +2,7 @@ import { ImapConnectionPool } from '../connection/imap-pool.js';
 import { FolderService } from './folder.service.js';
 import type { Label } from '../types.js';
 import { IMAPError } from '../utils/errors.js';
+import { normalizeUids } from '../utils/validation.js';
 
 /**
  * LabelService - ProtonMail Label Management
@@ -99,7 +100,7 @@ export class LabelService {
     // In IMAP, applying a label means copying the message to that folder
     // ProtonMail Bridge handles the actual labeling on the server side
     return this.imapPool.withMailbox(sourceFolder, async (client, lock) => {
-      const uidStr = uids.join(',');
+      const uidStr = normalizeUids(uids).join(',');
 
       for (const labelPath of labelPaths) {
         try {
@@ -134,7 +135,7 @@ export class LabelService {
           // Search for messages with matching UIDs
           // Note: UIDs are folder-specific in IMAP, so we need to search by Message-ID
           // This is a limitation - for proper label removal, we'd need Message-IDs
-          const uidStr = uids.join(',');
+          const uidStr = normalizeUids(uids).join(',');
 
           // Try to delete - this may fail if messages aren't in this folder
           try {
