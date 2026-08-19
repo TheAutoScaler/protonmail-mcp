@@ -25,7 +25,16 @@
     }
   },
   "server": {
-    "transport": "stdio"
+    "transport": "http",
+    "host": "127.0.0.1",
+    "httpPort": 3000,
+    "httpPath": "/mcp",
+    "authToken": "replace-with-at-least-32-random-characters",
+    "allowedHosts": ["localhost", "127.0.0.1", "[::1]"],
+    "allowedOrigins": [],
+    "rateLimitWindowMs": 60000,
+    "rateLimitMaxRequests": 120,
+    "maxConcurrentRequests": 10
   },
   "connection": {
     "poolSize": 3,

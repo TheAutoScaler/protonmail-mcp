@@ -40,6 +40,13 @@ export interface ServerConfig {
   transport: 'stdio' | 'http';
   httpPort: number;
   httpPath: string;
+  host: string;
+  authToken: string;
+  allowedHosts: string[];
+  allowedOrigins: string[];
+  rateLimitWindowMs: number;
+  rateLimitMaxRequests: number;
+  maxConcurrentRequests: number;
 }
 
 export interface ConnectionConfig {
