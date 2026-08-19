@@ -8,6 +8,56 @@ An MCP (Model Context Protocol) server that connects to ProtonMail via Bridge, e
 > support. Review the code and dependency advisories before each deployment. If
 > you use it, keep it bound to loopback and do not expose it directly to a network.
 
+## Quick start with Codex
+
+1. Install and open [Proton Mail Bridge](https://proton.me/mail/bridge), sign in,
+   and wait until it says **Connected**.
+2. Select your account in Bridge and copy the username and password shown under
+   **Mailbox details**. These are **Bridge-generated IMAP/SMTP credentials**.
+   The password is **not your Proton Mail account password**.
+3. Install and configure the server:
+
+   ```bash
+   npm install
+   npm run build
+   cp config/protonmail.config.example.json config/protonmail.config.json
+   openssl rand -hex 32
+   ```
+
+4. In `config/protonmail.config.json`, set:
+   - `protonmail.auth.user` to the username from Bridge.
+   - `protonmail.auth.pass` to the password from Bridge.
+   - `server.authToken` to the generated 64-character token.
+5. Protect the file and start the server:
+
+   ```bash
+   chmod 600 config/protonmail.config.json
+   npm start
+   ```
+
+6. In another terminal, register the same token with Codex:
+
+   ```bash
+   export PROTONMAIL_MCP_TOKEN="paste-the-server.authToken-value"
+   codex mcp add protonmail \
+     --url http://127.0.0.1:3000/mcp \
+     --bearer-token-env-var PROTONMAIL_MCP_TOKEN
+   codex mcp list --json
+   ```
+
+Restart Codex, then use `/mcp` to confirm that `protonmail` is connected. Keep
+Proton Mail Bridge and `npm start` running while using the tools. If basic commands
+such as `codex` or `basename` are missing, restore the standard macOS path first:
+
+```bash
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$HOME/.local/bin"
+hash -r
+```
+
+`config/protonmail.config.json` contains secrets. It is excluded from Git and
+Docker builds; do not share or commit it. The server listens only on
+`127.0.0.1:3000` and requires the bearer token.
+
 ## Security audit and hardening
 
 This fork received a source-level security audit on **19 August 2026**, covering
@@ -56,90 +106,12 @@ especially because this fork is unmaintained.
 - [ProtonMail Bridge](https://proton.me/mail/bridge) installed and running
 - ProtonMail account (Plus, Unlimited, or Business)
 
-## Installation
+## Transport
 
-```bash
-git clone https://github.com/robotben/protonmail-mcp.git
-cd protonmail-mcp
-npm install
-npm run build
-```
+The server uses MCP Streamable HTTP at `http://127.0.0.1:3000/mcp`. Browser
+origins are denied unless explicitly allowed in `server.allowedOrigins`.
 
-## Configuration
-
-1. Copy the example config:
-   ```bash
-   cp config/protonmail.config.example.json config/protonmail.config.json
-   ```
-
-2. Generate an MCP bearer token and edit `config/protonmail.config.json`:
-   ```bash
-   openssl rand -hex 32
-   ```
-
-   Add the generated value together with your Bridge credentials:
-   ```json
-   {
-     "protonmail": {
-       "auth": {
-         "user": "your-email@protonmail.com",
-         "pass": "your-bridge-password"
-       }
-     },
-     "server": {
-       "authToken": "paste-the-generated-token-here"
-     }
-   }
-   ```
-
-   > **Note**: Use the Bridge password from ProtonMail Bridge app (not your account password).
-
-## Running the Server
-
-```bash
-npm start
-```
-
-The server listens only on `127.0.0.1:3000` by default. Change `server.httpPort`
-in the configuration file to use another port. The server deliberately rejects
-non-loopback bind addresses; put an authenticated TLS reverse proxy in front of
-it if remote access is required.
-
-```bash
-MCP_AUTH_TOKEN="$(openssl rand -hex 32)" \
-PROTONMAIL_USER="you@example.com" \
-PROTONMAIL_PASS="your-bridge-password" \
-PROTONMAIL_TLS_REJECT_UNAUTHORIZED=false \
-npm start
-```
-
-MCP endpoint: `http://localhost:3000/mcp`
-
-## Usage with Claude Desktop
-
-The server uses the **MCP Streamable HTTP transport** (spec 2025-03-26), so configure Claude Desktop with a URL instead of a command:
-
-```json
-{
-  "mcpServers": {
-    "protonmail": {
-      "url": "http://localhost:3000/mcp",
-      "headers": {
-        "Authorization": "Bearer paste-the-same-generated-token-here"
-      }
-    }
-  }
-}
-```
-
-> **Note**: Start the server before launching Claude Desktop (`npm start`).
-
-Every `/mcp` and `/emails` request requires the bearer token. Browser-originated
-requests are rejected unless their exact origin is listed in
-`server.allowedOrigins`, which is empty by default. Keep the configuration file
-private; it contains both the Bridge password and MCP token.
-
-### Legacy stdio (not supported)
+### Legacy stdio
 
 This server no longer supports stdio transport. If you need stdio, use an earlier version.
 
