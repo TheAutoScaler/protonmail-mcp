@@ -10,32 +10,40 @@ import type { ToolResponse } from '../types.js';
 import { createSuccessResponse, errorToResponse } from '../utils/errors.js';
 
 // Tool input schemas
+const FolderSchema = z.string().min(1).max(512);
+const UidSchema = z.string().regex(/^[1-9]\d*$/, 'UID must be a positive decimal integer');
+const UidListSchema = z.array(UidSchema).min(1).max(500);
+const EmailAddressSchema = z.string().email().max(320);
+const EmailAddressListSchema = z.array(EmailAddressSchema).min(1).max(100);
+const ShortTextSchema = z.string().max(998);
+const BodySchema = z.string().max(1_048_576);
+
 const ListEmailsSchema = z.object({
-  folder: z.string().default('INBOX'),
+  folder: FolderSchema.default('INBOX'),
   limit: z.number().min(1).max(500).default(50),
   offset: z.number().min(0).default(0),
   sort_order: z.enum(['asc', 'desc']).default('desc')
 });
 
 const GetEmailSchema = z.object({
-  folder: z.string().default('INBOX'),
-  uid: z.string(),
+  folder: FolderSchema.default('INBOX'),
+  uid: UidSchema,
   include_attachments: z.boolean().default(false)
 });
 
 const GetEmailHeadersSchema = z.object({
-  folder: z.string().default('INBOX'),
-  uid: z.string()
+  folder: FolderSchema.default('INBOX'),
+  uid: UidSchema
 });
 
 const SearchEmailsSchema = z.object({
-  query: z.string().optional(),
-  folder: z.string().default('INBOX'),
-  from: z.string().optional(),
-  to: z.string().optional(),
-  subject: z.string().optional(),
-  date_from: z.string().optional(),
-  date_to: z.string().optional(),
+  query: z.string().max(10_000).optional(),
+  folder: FolderSchema.default('INBOX'),
+  from: EmailAddressSchema.optional(),
+  to: EmailAddressSchema.optional(),
+  subject: ShortTextSchema.optional(),
+  date_from: z.string().datetime().optional(),
+  date_to: z.string().datetime().optional(),
   has_attachment: z.boolean().optional(),
   is_unread: z.boolean().optional(),
   limit: z.number().min(1).max(1000).default(50),
@@ -43,105 +51,105 @@ const SearchEmailsSchema = z.object({
 });
 
 const GetUnreadCountSchema = z.object({
-  folders: z.array(z.string()).default(['INBOX'])
+  folders: z.array(FolderSchema).min(1).max(100).default(['INBOX'])
 });
 
 const MarkAsReadSchema = z.object({
-  folder: z.string().default('INBOX'),
-  uids: z.array(z.string())
+  folder: FolderSchema.default('INBOX'),
+  uids: UidListSchema
 });
 
 const MarkAsUnreadSchema = z.object({
-  folder: z.string().default('INBOX'),
-  uids: z.array(z.string())
+  folder: FolderSchema.default('INBOX'),
+  uids: UidListSchema
 });
 
 const SendEmailSchema = z.object({
-  to: z.array(z.string()),
-  cc: z.array(z.string()).optional(),
-  bcc: z.array(z.string()).optional(),
-  subject: z.string(),
-  body: z.string().optional(),
-  html_body: z.string().optional()
+  to: EmailAddressListSchema,
+  cc: z.array(EmailAddressSchema).max(100).optional(),
+  bcc: z.array(EmailAddressSchema).max(100).optional(),
+  subject: ShortTextSchema,
+  body: BodySchema.optional(),
+  html_body: BodySchema.optional()
 });
 
 const ReplyToEmailSchema = z.object({
-  folder: z.string().default('INBOX'),
-  uid: z.string(),
-  body: z.string(),
-  html_body: z.string().optional(),
+  folder: FolderSchema.default('INBOX'),
+  uid: UidSchema,
+  body: BodySchema,
+  html_body: BodySchema.optional(),
   reply_all: z.boolean().default(false)
 });
 
 const ForwardEmailSchema = z.object({
-  folder: z.string().default('INBOX'),
-  uid: z.string(),
-  to: z.array(z.string()),
-  body: z.string().optional()
+  folder: FolderSchema.default('INBOX'),
+  uid: UidSchema,
+  to: EmailAddressListSchema,
+  body: BodySchema.optional()
 });
 
 const ListFoldersSchema = z.object({});
 
 const CreateFolderSchema = z.object({
-  name: z.string(),
-  parent_folder: z.string().optional()
+  name: FolderSchema,
+  parent_folder: FolderSchema.optional()
 });
 
 const DeleteFolderSchema = z.object({
-  folder_path: z.string()
+  folder_path: FolderSchema
 });
 
 const RenameFolderSchema = z.object({
-  folder_path: z.string(),
-  new_name: z.string()
+  folder_path: FolderSchema,
+  new_name: FolderSchema
 });
 
 const MoveEmailsSchema = z.object({
-  source_folder: z.string(),
-  target_folder: z.string(),
-  uids: z.array(z.string())
+  source_folder: FolderSchema,
+  target_folder: FolderSchema,
+  uids: UidListSchema
 });
 
 const ListLabelsSchema = z.object({});
 
 const CreateLabelSchema = z.object({
-  name: z.string(),
-  color: z.string().optional()
+  name: FolderSchema,
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional()
 });
 
 const ApplyLabelsSchema = z.object({
-  source_folder: z.string().default('INBOX'),
-  uids: z.array(z.string()),
-  labels: z.array(z.string())
+  source_folder: FolderSchema.default('INBOX'),
+  uids: UidListSchema,
+  labels: z.array(FolderSchema).min(1).max(100)
 });
 
 const RemoveLabelsSchema = z.object({
-  folder: z.string().default('INBOX'),
-  uids: z.array(z.string()),
-  labels: z.array(z.string())
+  folder: FolderSchema.default('INBOX'),
+  uids: UidListSchema,
+  labels: z.array(FolderSchema).min(1).max(100)
 });
 
 const AnalyzeEmailTrendsSchema = z.object({
   period: z.enum(['day', 'week', 'month']).default('week'),
-  folder: z.string().default('INBOX')
+  folder: FolderSchema.default('INBOX')
 });
 
 const AnalyzeLabelDistributionSchema = z.object({
-  date_from: z.string().optional(),
-  date_to: z.string().optional()
+  date_from: z.string().datetime().optional(),
+  date_to: z.string().datetime().optional()
 });
 
 const IdentifyImportantEmailsSchema = z.object({
-  frequent_senders: z.array(z.string()).optional(),
-  priority_keywords: z.array(z.string()).optional(),
+  frequent_senders: z.array(EmailAddressSchema).max(100).optional(),
+  priority_keywords: z.array(z.string().min(1).max(100)).max(100).optional(),
   min_score: z.number().default(10),
   limit: z.number().default(20),
-  folder: z.string().default('INBOX')
+  folder: FolderSchema.default('INBOX')
 });
 
 const DeleteEmailsSchema = z.object({
-  folder: z.string().default('INBOX'),
-  uids: z.array(z.string())
+  folder: FolderSchema.default('INBOX'),
+  uids: UidListSchema
 });
 
 // Tool definitions
