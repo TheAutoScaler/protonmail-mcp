@@ -39,17 +39,21 @@ An MCP (Model Context Protocol) server that connects to ProtonMail via Bridge, e
    desktop app, and register the server:
 
    ```bash
-   export PROTONMAIL_MCP_TOKEN="$(node -p "require('./config/protonmail.config.json').server.authToken")"
+   cd /path/to/protonmail-mcp
+   export PROTONMAIL_MCP_TOKEN="$(node -p 'require("./config/protonmail.config.json").server.authToken')"
    launchctl setenv PROTONMAIL_MCP_TOKEN "$PROTONMAIL_MCP_TOKEN"
+   test -n "$(launchctl getenv PROTONMAIL_MCP_TOKEN)" && echo "token set" || echo "token missing"
    codex mcp add protonmail \
      --url http://127.0.0.1:3000/mcp \
      --bearer-token-env-var PROTONMAIL_MCP_TOKEN
    codex mcp list --json
    ```
 
-`launchctl setenv` is required because a macOS desktop app does not inherit an
-`export` from an unrelated terminal. Fully quit and reopen Codex after running
-it, then use `/mcp` to confirm that `protonmail` is connected. Keep Proton Mail
+Replace `/path/to/protonmail-mcp` with the repository path. The check must print
+`token set`; it does not display the token. `launchctl setenv` is required because
+a macOS desktop app does not inherit an `export` from an unrelated terminal.
+Fully quit and reopen Codex after running it, then use `/mcp` to confirm that
+`protonmail` is connected. Keep Proton Mail
 Bridge and `npm start` running while using the tools. If basic commands such as
 `codex` or `basename` are missing, restore the standard macOS path first:
 
