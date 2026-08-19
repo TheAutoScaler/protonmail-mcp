@@ -66,7 +66,8 @@ export class EmailService {
         envelope: true,
         flags: true,
         bodyStructure: true,
-        size: true
+        size: true,
+        uid: true
       })) {
         messages.push(this.mapMessage(message));
       }
@@ -92,8 +93,10 @@ export class EmailService {
           size: true,
           source: true,
           uid: true
-        }
+        },
+        { uid: true }
       )) {
+        this.assertUidMatches(message, new Set([normalizedUid]));
         return await this.parseFullMessage(message, includeAttachments);
       }
 
@@ -113,8 +116,10 @@ export class EmailService {
           bodyStructure: true,
           size: true,
           uid: true
-        }
+        },
+        { uid: true }
       )) {
+        this.assertUidMatches(message, new Set([normalizedUid]));
         return this.mapMessage(message);
       }
 
@@ -150,6 +155,7 @@ export class EmailService {
 
       const messages: EmailMessage[] = [];
       const uidStr = selectedUids.join(',');
+      const expectedUids = new Set(selectedUids.map(uid => uid.toString()));
       for await (const message of client.fetch(
         uidStr,
         {
@@ -158,8 +164,10 @@ export class EmailService {
           bodyStructure: true,
           size: true,
           uid: true
-        }
+        },
+        { uid: true }
       )) {
+        this.assertUidMatches(message, expectedUids);
         messages.push(this.mapMessage(message));
       }
 
@@ -309,10 +317,14 @@ export class EmailService {
   }
 
   private mapMessage(message: any): EmailMessage {
+    if (message.uid === undefined || message.uid === null) {
+      throw new IMAPError('IMAP response did not include a UID');
+    }
+
     const envelope = message.envelope || {};
 
     return {
-      uid: message.uid?.toString() || message.seq?.toString() || '0',
+      uid: message.uid.toString(),
       messageId: envelope.messageId,
       subject: envelope.subject || '(no subject)',
       from: this.mapAddress(envelope.from?.[0]),
@@ -323,6 +335,18 @@ export class EmailService {
       hasAttachments: this.hasAttachments(message.bodyStructure),
       size: message.size
     };
+  }
+
+  private assertUidMatches(message: any, expectedUids: Set<string>): void {
+    const actualUid = message.uid?.toString();
+    if (!actualUid) {
+      throw new IMAPError('IMAP response did not include a UID');
+    }
+    if (!expectedUids.has(actualUid)) {
+      throw new IMAPError(
+        `IMAP UID integrity check failed: expected one of ${[...expectedUids].join(',')}`
+      );
+    }
   }
 
   private async parseFullMessage(

@@ -84,6 +84,8 @@ The audit identified and fixed the following issues:
 - Per-client request limits and a global concurrency limit were added.
 - IMAP UIDs must now be positive decimal integers. Sequence expressions such as
   `1:*` are rejected before they reach IMAP operations.
+- UID-based reads and searches now use IMAP UID mode correctly, always return
+  stable UIDs, and fail closed if Bridge returns an unexpected message identity.
 - Tool inputs, recipient lists, request bodies, parsed messages, and attachments
   are bounded to reduce memory and CPU denial-of-service risk.
 - TLS certificate verification is enabled by default and may be disabled only
@@ -94,6 +96,22 @@ The audit identified and fixed the following issues:
   the resulting production lockfile reported zero advisories at audit time.
 - Regression tests were added for secure configuration and UID handling.
 - Internal HTTP failures no longer return underlying exception details to clients.
+
+### Additional UID integrity fix and tests
+
+Compared with the original project, this fork passes UID mode to ImapFlow as a
+fetch option instead of requesting `uid` as a message field. The original form
+could interpret a UID as a mailbox sequence number and return or modify a
+different message. Reads, searches, and mutations now use stable UIDs and fail
+closed when Bridge returns a missing, malformed, or mismatched identity.
+
+The added email-service regression suite covers:
+
+- UID-safe listing, full-message reads, header reads, searches, and mutations.
+- Pagination, limit caps, combined search filters, empty results, and
+  out-of-range pages.
+- Missing or mismatched UIDs, malformed responses, invalid mutation inputs,
+  IMAP failures, and oversized message sources.
 
 After hardening, a clean install, TypeScript build, security regression suite,
 Mailparser compatibility smoke test, diff validation, and production dependency
