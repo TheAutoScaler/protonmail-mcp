@@ -218,6 +218,16 @@ export class EmailService {
     htmlBody?: string,
     replyAll: boolean = false
   ): Promise<{ messageId: string }> {
+    return this.sendEmail(await this.prepareReply(folder, uid, body, htmlBody, replyAll));
+  }
+
+  async prepareReply(
+    folder: string,
+    uid: string,
+    body: string,
+    htmlBody?: string,
+    replyAll: boolean = false
+  ): Promise<SendEmailOptions> {
     const original = await this.getEmail(folder, uid, false);
 
     const to = replyAll
@@ -232,7 +242,7 @@ export class EmailService {
       ? original.subject
       : `Re: ${original.subject}`;
 
-    return this.sendEmail({
+    return {
       to: [...new Set(to)], // Remove duplicates
       cc: cc ? [...new Set(cc)] : undefined,
       subject,
@@ -242,7 +252,7 @@ export class EmailService {
       references: original.references
         ? [...original.references, original.messageId!]
         : [original.messageId!]
-    });
+    };
   }
 
   async forwardEmail(
@@ -251,6 +261,15 @@ export class EmailService {
     to: string[],
     body?: string
   ): Promise<{ messageId: string }> {
+    return this.sendEmail(await this.prepareForward(folder, uid, to, body));
+  }
+
+  async prepareForward(
+    folder: string,
+    uid: string,
+    to: string[],
+    body?: string
+  ): Promise<SendEmailOptions> {
     const original = await this.getEmail(folder, uid, true);
 
     const subject = original.subject.startsWith('Fwd:')
@@ -259,7 +278,7 @@ export class EmailService {
 
     const forwardBody = `${body || ''}\n\n---------- Forwarded message ----------\nFrom: ${original.from.name || ''} <${original.from.address}>\nDate: ${original.date}\nSubject: ${original.subject}\nTo: ${original.to.map(t => t.address).join(', ')}\n\n${original.body || ''}`;
 
-    return this.sendEmail({
+    return {
       to,
       subject,
       body: forwardBody,
@@ -269,7 +288,7 @@ export class EmailService {
         content: att.content!,
         contentType: att.contentType
       }))
-    });
+    };
   }
 
   async moveEmails(

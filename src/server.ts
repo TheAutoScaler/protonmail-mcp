@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 import express from 'express';
-import { timingSafeEqual } from 'crypto';
+import type { Server as HttpServer } from 'node:http';
+import { randomUUID, timingSafeEqual } from 'crypto';
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { loadConfig } from './config/config.js';
 import { ImapConnectionPool } from './connection/imap-pool.js';
 import { SMTPClient } from './connection/smtp-client.js';
@@ -40,33 +42,28 @@ async function main() {
   // Create services
   const services = createServices(imapPool, smtpClient, config);
 
-  // Create MCP server
-  const server = new Server(
-    {
-      name: SERVER_NAME,
-      version: SERVER_VERSION
-    },
-    {
-      capabilities: {
-        tools: {},
-        resources: {}
-      }
-    }
-  );
-
-  // Setup handlers
-  setupTools(server, services);
-  setupResources(server, services);
-
-  // Handle server errors
-  server.onerror = (error) => {
-    console.error(`[${SERVER_NAME}] Server error:`, error);
+  const createMcpServer = () => {
+    const server = new Server(
+      { name: SERVER_NAME, version: SERVER_VERSION },
+      { capabilities: { tools: {}, resources: {} } }
+    );
+    setupTools(server, services);
+    setupResources(server, services);
+    server.onerror = error => console.error(`[${SERVER_NAME}] Server error:`, error);
+    return server;
   };
+  const transports = new Map<string, StreamableHTTPServerTransport>();
+  let httpServer: HttpServer | undefined;
 
   // Handle graceful shutdown
   const shutdown = async () => {
     console.error(`[${SERVER_NAME}] Shutting down...`);
     try {
+      await Promise.all([...transports.values()].map(transport => transport.close()));
+      await new Promise<void>(resolve => {
+        if (!httpServer) return resolve();
+        httpServer.close(() => resolve());
+      });
       await imapPool.close();
       await smtpClient.close();
     } catch {
@@ -175,17 +172,32 @@ async function main() {
     }
   });
 
-  // MCP endpoint — Streamable HTTP, stateless, plain JSON responses
+  // MCP endpoint — sessionful Streamable HTTP. Server-initiated approval
+  // elicitation requires a persistent transport and bidirectional SSE stream.
   app.post(serverConfig.httpPath, protectedRequest, async (req, res) => {
     try {
-      const transport = new StreamableHTTPServerTransport({
-        sessionIdGenerator: undefined,
-        enableJsonResponse: true,
-      });
-      res.on('close', () => {
-        transport.close();
-      });
-      await server.connect(transport);
+      const sessionId = req.get('mcp-session-id');
+      let transport = sessionId ? transports.get(sessionId) : undefined;
+      if (!transport && !sessionId && isInitializeRequest(req.body)) {
+        transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: () => randomUUID(),
+          onsessioninitialized: initializedId => {
+            transports.set(initializedId, transport!);
+          }
+        });
+        transport.onclose = () => {
+          if (transport?.sessionId) transports.delete(transport.sessionId);
+        };
+        await createMcpServer().connect(transport);
+      }
+      if (!transport) {
+        res.status(400).json({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'Invalid or missing MCP session ID' },
+          id: null
+        });
+        return;
+      }
       await transport.handleRequest(req, res, req.body);
     } catch (error) {
       console.error(`[${SERVER_NAME}] MCP request error:`, error);
@@ -202,6 +214,26 @@ async function main() {
     }
   });
 
+  app.get(serverConfig.httpPath, protectedRequest, async (req, res) => {
+    const sessionId = req.get('mcp-session-id');
+    const transport = sessionId ? transports.get(sessionId) : undefined;
+    if (!transport) {
+      res.status(400).send('Invalid or missing MCP session ID');
+      return;
+    }
+    await transport.handleRequest(req, res);
+  });
+
+  app.delete(serverConfig.httpPath, protectedRequest, async (req, res) => {
+    const sessionId = req.get('mcp-session-id');
+    const transport = sessionId ? transports.get(sessionId) : undefined;
+    if (!transport) {
+      res.status(400).send('Invalid or missing MCP session ID');
+      return;
+    }
+    await transport.handleRequest(req, res);
+  });
+
   app.use((error: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
     console.error(`[${SERVER_NAME}] HTTP request rejected:`, error);
     if (!res.headersSent) {
@@ -211,7 +243,7 @@ async function main() {
     }
   });
 
-  app.listen(serverConfig.httpPort, serverConfig.host, () => {
+  httpServer = app.listen(serverConfig.httpPort, serverConfig.host, () => {
     console.error(
       `[${SERVER_NAME}] Server started on http://${serverConfig.host}:${serverConfig.httpPort}${serverConfig.httpPath}`
     );

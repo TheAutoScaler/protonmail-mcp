@@ -8,6 +8,7 @@ import { z } from 'zod';
 import type { Services } from '../services/index.js';
 import type { ToolResponse } from '../types.js';
 import { createSuccessResponse, errorToResponse } from '../utils/errors.js';
+import { requireSendApproval } from '../security/send-approval.js';
 
 // Tool input schemas
 const FolderSchema = z.string().min(1).max(512);
@@ -461,11 +462,11 @@ export function setupTools(server: Server, services: Services): void {
   });
 
   // Handle tool calls
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const { name, arguments: args } = request.params;
 
     try {
-      const result = await handleToolCall(name, args || {}, services);
+      const result = await handleToolCall(name, args || {}, services, server, extra);
       return {
         content: result.content,
         isError: result.isError
@@ -483,7 +484,9 @@ export function setupTools(server: Server, services: Services): void {
 async function handleToolCall(
   name: string,
   args: Record<string, unknown>,
-  services: Services
+  services: Services,
+  server: Server,
+  requestContext: { requestId: string | number; signal: AbortSignal }
 ): Promise<ToolResponse> {
   switch (name) {
     // Email Reading Tools
@@ -564,38 +567,50 @@ async function handleToolCall(
     // Email Sending Tools
     case 'send_email': {
       const input = SendEmailSchema.parse(args);
-      const result = await services.email.sendEmail({
+      const payload = {
         to: input.to,
         cc: input.cc,
         bcc: input.bcc,
         subject: input.subject,
         body: input.body,
         htmlBody: input.html_body
-      });
-      return createSuccessResponse(result);
+      };
+      const approvalFingerprint = await requireSendApproval(
+        server, 'new email', payload, requestContext.requestId, requestContext.signal
+      );
+      const result = await services.email.sendEmail(payload);
+      return createSuccessResponse({ ...result, approvalFingerprint });
     }
 
     case 'reply_to_email': {
       const input = ReplyToEmailSchema.parse(args);
-      const result = await services.email.replyToEmail(
+      const payload = await services.email.prepareReply(
         input.folder,
         input.uid,
         input.body,
         input.html_body,
         input.reply_all
       );
-      return createSuccessResponse(result);
+      const approvalFingerprint = await requireSendApproval(
+        server, 'email reply', payload, requestContext.requestId, requestContext.signal
+      );
+      const result = await services.email.sendEmail(payload);
+      return createSuccessResponse({ ...result, approvalFingerprint });
     }
 
     case 'forward_email': {
       const input = ForwardEmailSchema.parse(args);
-      const result = await services.email.forwardEmail(
+      const payload = await services.email.prepareForward(
         input.folder,
         input.uid,
         input.to,
         input.body
       );
-      return createSuccessResponse(result);
+      const approvalFingerprint = await requireSendApproval(
+        server, 'forwarded email', payload, requestContext.requestId, requestContext.signal
+      );
+      const result = await services.email.sendEmail(payload);
+      return createSuccessResponse({ ...result, approvalFingerprint });
     }
 
     // Folder Management Tools
