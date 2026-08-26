@@ -157,9 +157,15 @@ This server no longer supports stdio transport. If you need stdio, use an earlie
 ### Email Sending
 | Tool | Description |
 |------|-------------|
-| `send_email` | Send a new email |
-| `reply_to_email` | Reply to an email |
-| `forward_email` | Forward an email |
+| `send_email` | Send a new email after explicit MCP client approval |
+| `reply_to_email` | Reply to an email after explicit MCP client approval |
+| `forward_email` | Forward an email after explicit MCP client approval |
+
+All three sending tools fail closed unless the connected MCP client advertises
+form elicitation support and the user explicitly confirms the exact frozen SMTP
+payload. The approval includes recipients, subject, attachment names and a
+SHA-256 payload fingerprint. Decline, cancellation, timeout, disconnect, missing
+elicitation support, or any post-approval payload change prevents sending.
 
 ### Folder Management
 | Tool | Description |
